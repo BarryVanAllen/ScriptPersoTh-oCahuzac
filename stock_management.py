@@ -1,6 +1,7 @@
 import os
 import pandas as pd
 from typing import Optional
+import logging
 
 def consolidate_csv(input_dir: str) -> pd.DataFrame:
     """
@@ -9,6 +10,7 @@ def consolidate_csv(input_dir: str) -> pd.DataFrame:
     all_dataframes = []
 
     if not os.path.exists(input_dir):
+        logging.error(f"Le répertoire {input_dir} n'existe pas.")
         raise FileNotFoundError(f"Le répertoire {input_dir} n'existe pas.")
 
     for filename in os.listdir(input_dir):
@@ -19,16 +21,14 @@ def consolidate_csv(input_dir: str) -> pd.DataFrame:
                 df['categorie'] = filename[:-4]
                 all_dataframes.append(df)
             except Exception as e:
-                print(f"Erreur lors de la lecture du fichier {filename} : {e}")
+                logging.error(f"Erreur lors de la lecture du fichier {filename} : {e}")
 
-    # Si aucun fichier CSV n'a été trouvé, retourner un DataFrame vide
     if not all_dataframes:
         return pd.DataFrame()  # Retourne un DataFrame vide
 
     consolidated_df = pd.concat(all_dataframes, ignore_index=True)
     consolidated_df.columns = [col.lower().strip() for col in consolidated_df.columns]
 
-    # Normaliser les types des colonnes
     consolidated_df['quantite'] = pd.to_numeric(consolidated_df['quantite'], errors='coerce')
     consolidated_df['prix_unitaire'] = pd.to_numeric(consolidated_df['prix_unitaire'], errors='coerce')
 
@@ -42,8 +42,11 @@ def search_inventory(input_dir: str,
     """
     Recherche des produits selon différents critères.
     """
-    # Appel de la fonction consolidate_csv pour récupérer le DataFrame consolidé
     consolidated_df = consolidate_csv(input_dir)
+
+    if consolidated_df.empty:
+        logging.info("Aucun produit trouvé.")
+        return pd.DataFrame()  # Retourne un DataFrame vide si aucun produit n'est trouvé
 
     result = consolidated_df.copy()
 
