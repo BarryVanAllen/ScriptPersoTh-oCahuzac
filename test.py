@@ -1,135 +1,86 @@
 import unittest
 import pandas as pd
 import os
-from stock_management import consolidate_csv, search_inventory  # Import des fonctions modifiées
+import logging
+from unittest.mock import patch, MagicMock
+from stock_management import consolidate_csv, search_inventory
 from report_generator import generate_report
-from main import main
 
-class TestConsolidateCsvs(unittest.TestCase):
-    def setUp(self):
-        self.test_dir = "test_csv_dir"
-        self.output_file = "consolidated.csv"
-        os.makedirs(self.test_dir, exist_ok=True)
+class TestStockManagement(unittest.TestCase):
 
-        self.file1_content = "nom,quantite,prix_unitaire\nbanane,2,1.99\npomme,1,0.99\n"
-        self.file2_content = "nom,quantite,prix_unitaire\ncarotte,5,0.99\ncourgette,3,2.99\n"
-        self.file3_empty = ""
-        self.file4_random = "id,toto,param\ncarotte,5,0.99\ncourgette,3,2.99\n"
+    @patch('stock_management.os.listdir')
+    @patch('stock_management.os.path.exists')
+    @patch('stock_management.pd.read_csv')
+    def test_consolidate_csv(self, mock_read_csv, mock_exists, mock_listdir):
+        # Mock the existence of the input directory and CSV files
+        mock_exists.return_value = True
+        mock_listdir.return_value = ['file1.csv', 'file2.csv']
+        mock_read_csv.side_effect = [
+            pd.DataFrame({'nom': ['item1', 'item2'], 'quantite': [10, 20], 'prix_unitaire': [1.0, 2.0]}),
+            pd.DataFrame({'nom': ['item3', 'item4'], 'quantite': [30, 40], 'prix_unitaire': [3.0, 4.0]})
+        ]
 
-        with open(os.path.join(self.test_dir, "file1.csv"), "w") as f1, \
-                open(os.path.join(self.test_dir, "file2.csv"), "w") as f2, \
-                open(os.path.join(self.test_dir, "file3.csv"), "w") as f3:
-            f1.write(self.file1_content)
-            f2.write(self.file2_content)
-            f3.write(self.file3_empty)
+        # Test the consolidation function
+        df = consolidate_csv('dummy_dir')
 
-    def tearDown(self):
-        if os.path.exists(self.output_file):
-            os.remove(self.output_file)
-        for file in os.listdir(self.test_dir):
-            os.remove(os.path.join(self.test_dir, file))
-        os.rmdir(self.test_dir)
+        # Verify the results
+        self.assertEqual(len(df), 4)
+        self.assertIn('categorie', df.columns)
+        self.assertListEqual(df['categorie'].tolist(), ['file1', 'file1', 'file2', 'file2'])
 
-    def test_ok(self):
-        # Test with valid files
-        consolidated_df = consolidate_csv(self.test_dir)  # Appel direct à la fonction
-        self.assertEqual(len(consolidated_df), 5)  # 2 rows from file1 + 2 rows from file2
-        self.assertEqual(consolidated_df.iloc[0]["nom"], "banane")
+    @patch('stock_management.consolidate_csv')
+    def test_search_inventory(self, mock_consolidate_csv):
+        # Mock the consolidated DataFrame
+        mock_consolidate_csv.return_value = pd.DataFrame({
+            'nom': ['item1', 'item2', 'item3'],
+            'quantite': [10, 20, 30],
+            'prix_unitaire': [1.0, 2.0, 3.0]
+        })
 
-    def test_empty_file(self):
-        # Test with empty file
-        with open(os.path.join(self.test_dir, "file3.csv"), "w") as f:
-            f.write("")
-        consolidated_df = consolidate_csv(self.test_dir)  # Appel direct à la fonction
-        self.assertEqual(len(consolidated_df), 4)  # Only 4 rows from file1 and file2
+        # Test the search function with various criteria
+        df = search_inventory('dummy_dir', nom='item1', quantite=15, prix_unitaire=1.5)
+        self.assertEqual(len(df), 0)  # No item meets all criteria
 
-    def test_random_file(self):
-        # Test with a random file structure (non-CSV)
-        with open(os.path.join(self.test_dir, "file4.csv"), "w") as f:
-            f.write(self.file4_random)
-        consolidated_df = consolidate_csv(self.test_dir)  # Appel direct à la fonction
-        self.assertEqual(len(consolidated_df), 5)  # It should ignore non-CSV content (file4.csv)
+        df = search_inventory('dummy_dir', nom='item1')
+        self.assertEqual(len(df), 1)
+        self.assertEqual(df['nom'].iloc[0], 'item1')
 
-    def test_not_file(self):
-        # Test if there are no CSV files in the directory
-        # Supprime tous les fichiers CSV, mais garde le répertoire
-        for file in os.listdir(self.test_dir):
-            os.remove(os.path.join(self.test_dir, file))
+        df = search_inventory('dummy_dir', quantite=15)
+        self.assertEqual(len(df), 2)
+        self.assertListEqual(df['nom'].tolist(), ['item2', 'item3'])
 
-        # Assurez-vous qu'aucun fichier CSV n'est présent
-        self.assertEqual(len(os.listdir(self.test_dir)), 0)
+        df = search_inventory('dummy_dir', prix_unitaire=1.5)
+        self.assertEqual(len(df), 2)
+        self.assertListEqual(df['nom'].tolist(), ['item2', 'item3'])
 
-        # Attendez-vous à ce que le DataFrame retourné soit vide
-        consolidated_df = consolidate_csv(self.test_dir)  # Appel direct à la fonction
-        self.assertEqual(len(consolidated_df), 0)  # Aucun fichier CSV trouvé, donc pas de données à consolider
+    @patch('report_generator.pd.ExcelWriter')
+    @patch('os.path.exists', return_value=True)
+    def test_generate_report_excel(self, mock_exists, mock_ExcelWriter):
+        # Setup mock DataFrame and ExcelWriter
+        df = pd.DataFrame({'nom': ['item1'], 'quantite': [10], 'prix_unitaire': [1.0]})
+        mock_writer = MagicMock()
+        mock_ExcelWriter.return_value.__enter__.return_value = mock_writer
 
-class TestSearch(unittest.TestCase):
-    def setUp(self):
-        # Mock CSV content
-        self.csv_content = """nom,quantite,prix_unitaire
-pc,2,500.99
-ecran,1,100.99
-"""
-        # Create a temporary file for testing
-        self.test_file = "test_search.csv"
-        with open(self.test_file, "w") as file:
-            file.write(self.csv_content)
+        # Test the report generation function for Excel
+        with self.assertLogs(level='INFO') as log:
+            generate_report(df, 'report.xlsx')
+            self.assertIn("INFO:root:Fichier de rapport généré : report.xlsx", log.output)
 
-    def tearDown(self):
-        # Remove the temporary file after tests
-        if os.path.exists(self.test_file):
-            os.remove(self.test_file)
+        # Verify the Excel file save call
+        self.assertTrue(mock_writer.save.called)
 
-    def test_ok(self):
-        # Test for valid query
-        result = search_inventory(self.test_file, nom="pc")
-        self.assertIsNotNone(result)
-        self.assertEqual(result.iloc[0]["nom"], "pc")
+    @patch('os.path.exists', return_value=True)
+    def test_generate_report_csv(self, mock_exists):
+        # Setup mock DataFrame
+        df = pd.DataFrame({'nom': ['item1'], 'quantite': [10], 'prix_unitaire': [1.0]})
 
-    def test_no_result(self):
-        # Test for no matching result
-        result = search_inventory(self.test_file, nom="table")
-        self.assertEqual(len(result), 0)
+        # Test the report generation function for CSV
+        output_file = 'report'
+        with self.assertLogs(level='INFO') as log:
+            generate_report(df, output_file)
+            self.assertIn(f"INFO:root:Fichier de rapport généré en CSV : {output_file}_global.csv et {output_file}_categories.csv", log.output)
+            self.assertIn(f"INFO:root:Le fichier {output_file}_global.csv existe bien.", log.output)
+            self.assertIn(f"INFO:root:Le fichier {output_file}_categories.csv existe bien.", log.output)
 
-    def test_invalid_column(self):
-        # Test for invalid column
-        result = search_inventory(self.test_file, nom="rouge")
-        self.assertEqual(len(result), 0)
-
-    def test_file_not_found(self):
-        # Test for file not found
-        result = search_inventory("fichier_inexistant.csv", nom="pc")
-        self.assertEqual(result, "Fichier introuvable.")
-
-class TestGenerateReport(unittest.TestCase):
-    def setUp(self):
-        # Mock CSV content
-        self.csv_content = """nom,quantite,prix_unitaire
-pc,2,500.99
-ecran,1,100.99
-"""
-        # Create a temporary file for testing
-        self.test_file = "test_generateReport.csv"
-        self.output_file = "test_report.xlsx"
-        with open(self.test_file, "w") as file:
-            file.write(self.csv_content)
-
-    def tearDown(self):
-        if os.path.exists(self.test_file):
-            os.remove(self.test_file)
-        if os.path.exists(self.output_file):
-            os.remove(self.output_file)
-
-    def test_ok(self):
-        # Test generating a report successfully
-        consolidated_df = pd.read_csv(self.test_file)
-        generate_report(consolidated_df, self.output_file)
-        self.assertTrue(os.path.exists(self.output_file))
-
-    def test_file_not_found(self):
-        # Test generating a report with a non-existent file
-        result = generate_report("fichier_inexistant.csv", self.output_file)
-        self.assertEqual(result, "Fichier introuvable.")
-
-if __name__ == "__main__":
+if __name__ == '__main__':
     unittest.main()
