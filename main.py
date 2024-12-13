@@ -1,8 +1,11 @@
 import argparse
+import logging
 from stock_management import consolidate_csv, search_inventory
 from report_generator import generate_report
 
+
 def main():
+    logging.basicConfig(level=logging.INFO)
     parser = argparse.ArgumentParser(description="Gestion des stocks")
     parser.add_argument("input_dir", help="Répertoire contenant les fichiers CSV")
     parser.add_argument("commande", choices=["recherche", "rapport"], help="Commande à exécuter")
@@ -24,13 +27,18 @@ def main():
 
         if args.export:
             resultats.to_csv(args.export, index=False)
-            print(f"Résultats exportés vers {args.export}")
+            logging.info(f"Résultats exportés vers {args.export}")
         else:
             print(resultats)
 
     elif args.commande == 'rapport':
         consolidated_df = consolidate_csv(args.input_dir)
-        generate_report(consolidated_df, args.output)
+        if consolidated_df.empty:
+            logging.info("Aucune donnée disponible pour générer le rapport.")
+        else:
+            generate_report(consolidated_df, args.output)
+
 
 if __name__ == '__main__':
     main()
+
