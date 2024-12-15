@@ -1,44 +1,43 @@
+from data_loader import DataLoader
+from search import SearchEngine
+from report_generator import ReportGenerator
 import argparse
-import logging
-from stock_management import consolidate_csv, search_inventory
-from report_generator import generate_report
 
 
 def main():
-    logging.basicConfig(level=logging.INFO)
-    parser = argparse.ArgumentParser(description="Gestion des stocks")
-    parser.add_argument("input_dir", help="Répertoire contenant les fichiers CSV")
-    parser.add_argument("commande", choices=["recherche", "rapport"], help="Commande à exécuter")
-    parser.add_argument("--nom", help="Nom du produit à rechercher")
-    parser.add_argument("--quantite", type=int, help="Quantité minimale à rechercher")
-    parser.add_argument("--prix_unitaire", type=float, help="Prix unitaire minimum à rechercher")
-    parser.add_argument("--export", help="Fichier pour exporter les résultats de la recherche")
-    parser.add_argument("--output", help="Fichier pour exporter le rapport")
+    parser = argparse.ArgumentParser(description="Outil de gestion des stocks.")
+    parser.add_argument('--directory', '-d', required=True, help="Dossier contenant les fichiers CSV.")
+    parser.add_argument('--search', '-s', nargs=2, metavar=('field', 'value'),
+                        help="Rechercher un produit (champ, valeur).")
+    parser.add_argument('--report', '-r', metavar='output_file', help="Générer un rapport résumé.")
 
     args = parser.parse_args()
 
-    if args.commande == 'recherche':
-        resultats = search_inventory(
-            input_dir=args.input_dir,
-            nom=args.nom,
-            prix_unitaire=args.prix_unitaire,
-            quantite=args.quantite
-        )
+    # Étape 1 : Charger les fichiers CSV
+    loader = DataLoader(args.directory)
+    loader.load_csv_files()
+    data = loader.get_data()
+    if not data:
+        print("Aucune donnée trouvée dans les fichiers CSV.")
+        return
 
-        if args.export:
-            resultats.to_csv(args.export, index=False)
-            logging.info(f"Résultats exportés vers {args.export}")
+    # Étape 2 : Effectuer une recherche (optionnel)
+    if args.search:
+        field, value = args.search
+        search_engine = SearchEngine(data)
+        results = search_engine.search(field, value)
+        if results:
+            print(f"Résultats trouvés ({len(results)} lignes) :")
+            for row in results:
+                print(row)
         else:
-            print(resultats)
+            print("Aucun résultat trouvé.")
 
-    elif args.commande == 'rapport':
-        consolidated_df = consolidate_csv(args.input_dir)
-        if consolidated_df.empty:
-            logging.info("Aucune donnée disponible pour générer le rapport.")
-        else:
-            generate_report(consolidated_df, args.output)
+    # Étape 3 : Générer un rapport (optionnel)
+    if args.report:
+        report_generator = ReportGenerator(data)
+        report_generator.generate_summary(args.report)
 
 
 if __name__ == '__main__':
     main()
-
